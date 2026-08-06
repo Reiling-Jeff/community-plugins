@@ -4,7 +4,7 @@
 --
 --   state    "arch_state"   = { nonce, phase, step, total, pacman, aur,
 --                                flatpak, downloadSizeMiB, rebootRecommended,
---                                newsUnread, newsLatestTitle, dismissed, err,
+--                                newsUnread, newsLatestTitle, err,
 --                                checkedAt, ignoredCount }
 --   requests "arch_request" = { nonce, action }  -- check|update|dismiss
 --
@@ -40,7 +40,6 @@ local newsUnread = 0
 local newsLatestTitle = nil
 local newsItems = {}
 local newsLastSeenGuid = nil
-local dismissed = false
 local errMsg = nil
 local checkedAt = ""
 local stateNonce = 0
@@ -197,7 +196,6 @@ local function publish()
         rebootRecommended = rebootRecommended,
         newsUnread = newsUnread,
         newsLatestTitle = newsLatestTitle,
-        dismissed = dismissed,
         err = errMsg,
         checkedAt = checkedAt,
         ignoredCount = #ignoreList(),
@@ -423,7 +421,6 @@ finishCheck = function()
     total = sources.pacman.n + sources.aur.n + sources.flatpak.n
     step = ""
     phase = total > 0 and "ready" or "clean"
-    dismissed = false
     checkedAt = noctalia.formatTime("%H:%M")
     sinceCheck = 0
     publish()
@@ -681,10 +678,13 @@ local function handle(action)
     elseif action == "update" then
         runUpdate()
     elseif action == "dismiss" then
-        if not dismissed then
-            dismissed = true
-            publish()
-        end
+        sources.pacman = { n = 0, items = {} }
+        sources.aur = { n = 0, items = {}, helper = sources.aur.helper }
+        sources.flatpak = { n = 0, items = {} }
+        total = 0
+        downloadSizeMiB = nil
+        phase = "clean"
+        publish()
     elseif action == "open_news" then
         openNews()
     end

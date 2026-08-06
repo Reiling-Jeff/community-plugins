@@ -47,8 +47,8 @@ The panel groups pending packages by source (Pacman, AUR, Flatpak). Click a
 source row to expand it into its packages. Each package row has a copy
 button (name and versions) and an open button (its page on archlinux.org,
 the AUR, or Flathub). **Check Updates** queries all sources, **Update** opens
-a terminal running the upgrade, **Dismiss** keeps the numbers but returns the
-bar glyph to its resting colour.
+a terminal running the upgrade, **Dismiss** clears the pending list and
+closes the panel, returning the bar glyph to its resting colour.
 
 Type `/arch` in the launcher for quick actions (check, update, open news), or
 `/arch <text>` to fuzzy-search the packages from the last check. Activating a

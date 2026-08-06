@@ -6,7 +6,7 @@
 --
 -- "Check Updates" only queries pacman, the AUR helper and (optionally)
 -- Flatpak. Only then do "Update" (open a terminal and run the upgrade) and
--- "Dismiss" (keep the numbers, quiet the bar) light up.
+-- "Dismiss" (clear the pending list and close the panel) light up.
 
 local STATE_KEY = "arch_state"
 local REQUEST_KEY = "arch_request"
@@ -391,9 +391,10 @@ render = function()
             }),
             ui.button({
                 key = "dismiss" .. (hasUpdates and "" or "-off"),
-                text = tr("action_dismiss"), variant = "ghost", enabled = hasUpdates and snapshot.dismissed ~= true,
+                text = tr("action_dismiss"), variant = "ghost", enabled = hasUpdates,
                 onClick = function()
                     request("dismiss")
+                    panel.close()
                 end,
             }),
             ui.button({
