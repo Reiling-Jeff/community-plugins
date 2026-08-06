@@ -116,6 +116,12 @@ local function sourceLabel(key, entry)
     return tr("source." .. key)
 end
 
+local SOURCE_GLYPHS = { pacman = "package", aur = "cloud", flatpak = "app-window" }
+
+local function sourceGlyph(key)
+    return SOURCE_GLYPHS[key] or "package"
+end
+
 -- pacman, then the AUR helper, then Flatpak. Only sources with pending
 -- packages, biggest first.
 local function orderedSources()
@@ -226,6 +232,7 @@ local function sourceRows()
         end
         table.insert(rows, ui.row(header, {
             ui.glyph({ name = #names == 0 and "point" or (open and "chevron-down" or "chevron-right"), size = 12, color = "on_surface_variant" }),
+            ui.glyph({ name = sourceGlyph(source.key), size = 13, color = "on_surface_variant" }),
             ui.label({ text = sourceLabel(source.key, source.entry), color = "on_surface", flexGrow = 1 }),
             ui.label({ text = tostring(source.entry.n), color = "primary", fontWeight = "bold" }),
         }))
