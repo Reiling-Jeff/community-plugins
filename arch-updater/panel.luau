@@ -403,6 +403,7 @@ render = function()
                 tooltip = tr("tip_update"),
                 onClick = function()
                     request("update")
+                    panel.close()
                 end,
             }),
         }))
