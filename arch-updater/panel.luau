@@ -175,13 +175,15 @@ local function packageRow(sourceKey, index, item)
         }))
     end
     table.insert(children, ui.button({
-        glyph = "copy", variant = "ghost", controlSize = "sm", tooltip = tr("tip_copy"),
+        glyph = "copy", variant = "ghost", controlSize = "sm", width = 22, height = 22, glyphSize = 12,
+        tooltip = tr("tip_copy"),
         onClick = function()
             noctalia.copyToClipboard(detailFor(item), "text/plain")
         end,
     }))
     table.insert(children, ui.button({
-        glyph = "external-link", variant = "ghost", controlSize = "sm", tooltip = tr("tip_open_page"),
+        glyph = "external-link", variant = "ghost", controlSize = "sm", width = 22, height = 22, glyphSize = 12,
+        tooltip = tr("tip_open_page"),
         onClick = function()
             openPackage(sourceKey, item.name)
         end,
@@ -294,7 +296,7 @@ local function body()
 
     local rows = sourceRows()
     if #rows > 0 then
-        table.insert(children, ui.scroll({ key = "sources", flexGrow = 1, gap = 6 }, rows))
+        table.insert(children, ui.scroll({ key = "sources", flexGrow = 1, gap = 3 }, rows))
     else
         table.insert(children, ui.spacer({ key = "filler", flexGrow = 1 }))
     end
