@@ -15,6 +15,7 @@ local snapshot = nil
 local expanded = {} -- source key -> the package list is open
 local hoverKey = nil -- package row currently under the pointer
 local hoverText = "" -- what the detail line shows
+local activityHoverIndex = nil -- activity graph point currently under the pointer
 local listOpen = false -- at least one source is expanded this render
 
 local render
@@ -304,8 +305,9 @@ end
 -- the same count) centers the line at 0.5 instead of pinning it to the top
 -- edge, where it would be indistinguishable from the box border.
 local function activityValues(history)
-    local minN, maxN = history[1], history[1]
-    for _, n in ipairs(history) do
+    local minN, maxN = tonumber(history[1].n) or 0, tonumber(history[1].n) or 0
+    for _, entry in ipairs(history) do
+        local n = tonumber(entry.n) or 0
         if n < minN then
             minN = n
         end
@@ -315,15 +317,83 @@ local function activityValues(history)
     end
     local range = maxN - minN
     local values = {}
-    for _, n in ipairs(history) do
+    for _, entry in ipairs(history) do
+        local n = tonumber(entry.n) or 0
         table.insert(values, range > 0 and (n - minN) / range or 0.5)
     end
     return values
 end
 
+-- "2 hours ago", "3 days ago", etc. nil for entries migrated from the old
+-- history format, which never recorded a timestamp.
+local function relativeTime(at)
+    local t = tonumber(at)
+    if t == nil then
+        return nil
+    end
+    local diff = os.time() - t
+    if diff < 60 then
+        return tr("activity.just_now")
+    elseif diff < 3600 then
+        local m = math.floor(diff / 60)
+        return noctalia.trp("activity.minutes_ago", m, { count = m })
+    elseif diff < 86400 then
+        local h = math.floor(diff / 3600)
+        return noctalia.trp("activity.hours_ago", h, { count = h })
+    else
+        local d = math.floor(diff / 86400)
+        return noctalia.trp("activity.days_ago", d, { count = d })
+    end
+end
+
+-- "Updated · 2 hours ago" for the check that verified an update run, else
+-- "3 pending updates · 2 hours ago". Shared by the hover tooltip and the
+-- top-right caption so both describe a point the same way.
+local function describeEntry(entry)
+    local n = tonumber(entry.n) or 0
+    local text = entry.afterUpdate == true and tr("activity.updated")
+        or noctalia.trp("activity.pending_at", n, { count = n })
+    local when = relativeTime(entry.at)
+    if when ~= nil then
+        text = text .. " · " .. when
+    end
+    return text
+end
+
+-- ui.graph takes no pointer props of its own (only row/column/box/image/button
+-- do), so per-point hover is a row of equal-width hit targets placed right
+-- under the line, one per history entry. Each is a ghost button so it can
+-- carry a native tooltip at the pointer, not just a box for the hit test.
+-- It cannot highlight the point on the line itself, only drive the tooltip
+-- and the caption above it.
+local function activityHoverRow(history)
+    local segments = {}
+    for i, entry in ipairs(history) do
+        segments[i] = ui.button({
+            key = "activity-hit-" .. i,
+            variant = "ghost",
+            flexGrow = 1,
+            height = 12,
+            tooltip = describeEntry(entry),
+            onHover = function(state)
+                if state == "true" then
+                    activityHoverIndex = i
+                elseif activityHoverIndex == i then
+                    activityHoverIndex = nil
+                else
+                    return
+                end
+                render()
+            end,
+        })
+    end
+    return ui.row({ key = "activity-hits", gap = 1 }, segments)
+end
+
 -- A small trend graph of pending-update counts across recent checks, plus
--- when the last update ran. Off entirely when show_activity_graph is off,
--- and hidden until there is enough history to draw a line.
+-- when the last update ran (or, while hovering a point, that point's own
+-- description). Off entirely when show_activity_graph is off, and hidden
+-- until there is enough history to draw a line.
 local function activitySection()
     if snapshot == nil or noctalia.getConfig("show_activity_graph") ~= true then
         return nil
@@ -333,14 +403,19 @@ local function activitySection()
         return nil
     end
 
-    local lastUpdateAt = tonumber(snapshot.lastUpdateAt)
+    local hoveredEntry = activityHoverIndex ~= nil and history[activityHoverIndex] or nil
     local caption
-    if lastUpdateAt == nil then
-        caption = tr("activity.never_updated")
+    if hoveredEntry ~= nil then
+        caption = describeEntry(hoveredEntry)
     else
-        local days = math.floor((os.time() - lastUpdateAt) / 86400)
-        caption = days <= 0 and tr("activity.updated_today")
-            or noctalia.trp("activity.updated_days_ago", days, { count = days })
+        local lastUpdateAt = tonumber(snapshot.lastUpdateAt)
+        if lastUpdateAt == nil then
+            caption = tr("activity.never_updated")
+        else
+            local days = math.floor((os.time() - lastUpdateAt) / 86400)
+            caption = days <= 0 and tr("activity.updated_today")
+                or noctalia.trp("activity.updated_days_ago", days, { count = days })
+        end
     end
 
     return ui.column({ key = "activity", gap = 4 }, {
@@ -349,6 +424,7 @@ local function activitySection()
             ui.label({ text = caption, fontSize = 10, color = "on_surface_variant" }),
         }),
         ui.graph({ values = activityValues(history), color = "primary", fillOpacity = 0.15, lineWidth = 2, height = 36 }),
+        activityHoverRow(history),
     })
 end
 
@@ -483,6 +559,7 @@ function onOpen(_context)
     expanded = {}
     hoverKey = nil
     hoverText = ""
+    activityHoverIndex = nil
     render()
 end
 
@@ -494,6 +571,7 @@ noctalia.state.watch(STATE_KEY, function(value)
         expanded = {}
         hoverKey = nil
         hoverText = ""
+        activityHoverIndex = nil
     end
     snapshot = value
     render()

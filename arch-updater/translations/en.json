@@ -4,8 +4,26 @@
   "action_open_news": "Open news",
   "action_update": "Update",
   "activity": {
+    "days_ago": {
+      "one": "1 day ago",
+      "other": "{count} days ago"
+    },
+    "hours_ago": {
+      "one": "1 hour ago",
+      "other": "{count} hours ago"
+    },
+    "just_now": "just now",
+    "minutes_ago": {
+      "one": "1 minute ago",
+      "other": "{count} minutes ago"
+    },
     "never_updated": "Never updated",
+    "pending_at": {
+      "one": "1 pending update",
+      "other": "{count} pending updates"
+    },
     "title": "Activity",
+    "updated": "Updated",
     "updated_days_ago": {
       "one": "Updated 1 day ago",
       "other": "Updated {count} days ago"

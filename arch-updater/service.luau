@@ -55,9 +55,10 @@ local startupTicks = 0
 local sinceNewsCheck = 0
 local newsStateLoaded = false
 local newsDirty = false
-local history = {} -- pending-count per check, oldest first, trimmed to activity_history_length
+local history = {} -- { n, at, afterUpdate } per check, oldest first, trimmed to activity_history_length
 local lastUpdateAt = nil -- os.time() of the last update run that finished
 local historyStateLoaded = false
+local checkIsPostUpdate = false -- next finished check followed an update run
 
 local startCheck
 local checkNews
@@ -497,7 +498,21 @@ local function loadHistoryState()
     end)
     if ok and type(decoded) == "table" then
         if type(decoded.history) == "table" then
-            history = decoded.history
+            -- Migrates the old format (a plain array of counts) to entries with
+            -- a timestamp and an afterUpdate flag, both unknown for old data.
+            local migrated = {}
+            for _, entry in ipairs(decoded.history) do
+                if type(entry) == "table" then
+                    table.insert(migrated, {
+                        n = tonumber(entry.n) or 0,
+                        at = tonumber(entry.at),
+                        afterUpdate = entry.afterUpdate == true,
+                    })
+                elseif type(entry) == "number" then
+                    table.insert(migrated, { n = entry, at = nil, afterUpdate = false })
+                end
+            end
+            history = migrated
         end
         if type(decoded.lastUpdateAt) == "number" then
             lastUpdateAt = decoded.lastUpdateAt
@@ -520,11 +535,13 @@ end
 -- configured length. A no-op when the graph is turned off, so disabling it
 -- also stops collecting data, not just hides it.
 recordCheck = function()
+    local wasPostUpdate = checkIsPostUpdate
+    checkIsPostUpdate = false
     if cfg("show_activity_graph") ~= true then
         return
     end
     loadHistoryState()
-    table.insert(history, total)
+    table.insert(history, { n = total, at = os.time(), afterUpdate = wasPostUpdate })
     local maxLen = math.max(3, math.min(30, tonumber(cfg("activity_history_length")) or 10))
     while #history > maxLen do
         table.remove(history, 1)
@@ -532,7 +549,10 @@ recordCheck = function()
     saveHistoryState()
 end
 
+-- Marks the check that follows as the one that verifies an update run, so its
+-- history entry can say "Updated" instead of just a pending count.
 local function recordUpdateRun()
+    checkIsPostUpdate = true
     if cfg("show_activity_graph") ~= true then
         return
     end
