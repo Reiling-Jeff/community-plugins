@@ -324,6 +324,34 @@ local function activityValues(history)
     return values
 end
 
+local ACTIVITY_GRAPH_SUBDIVISIONS = 8
+
+local function upsampleLinear(values, subdivisions)
+    if #values < 2 or subdivisions <= 1 then
+        return values
+    end
+    local out = {}
+    for i = 1, #values - 1 do
+        local a, b = values[i], values[i + 1]
+        for s = 0, subdivisions - 1 do
+            table.insert(out, a + (b - a) * (s / subdivisions))
+        end
+    end
+    table.insert(out, values[#values])
+    return out
+end
+
+local function padGraphLookbehind(values)
+    if #values == 0 then
+        return values
+    end
+    local out = { values[1], values[1] }
+    for _, v in ipairs(values) do
+        table.insert(out, v)
+    end
+    return out
+end
+
 -- "2 hours ago", "3 days ago", etc. nil for entries migrated from the old
 -- history format, which never recorded a timestamp.
 local function relativeTime(at)
@@ -361,20 +389,27 @@ local function describeEntry(entry)
 end
 
 -- ui.graph takes no pointer props of its own (only row/column/box/image/button
--- do), so per-point hover is a row of equal-width hit targets placed right
--- under the line, one per history entry. Each is a ghost button so it can
--- carry a native tooltip at the pointer, not just a box for the hit test.
--- It cannot highlight the point on the line itself, only drive the tooltip
--- and the caption above it.
+-- do), so per-point hover is a row of hit targets placed right under the
+-- line. Each is a ghost button so it can carry a native tooltip at the
+-- pointer, not just a box for the hit test. It cannot highlight the point on
+-- the line itself, only drive the tooltip and the caption above it.
+--
+-- Real points sit at (k-1)/(#history-1) of the width (see
+-- padGraphLookbehind), i.e. #history-1 equal gaps, not #history equal slots
+-- - so this builds one equal-width segment per gap rather than per entry,
+-- ending each segment exactly on the point at its right edge. That leaves
+-- entry 1 (at the left edge, with no gap before it) without its own hover
+-- zone, but keeps every other spike landing right at the end of its segment
+-- instead of drifting toward the start of an oversized one.
 local function activityHoverRow(history)
     local segments = {}
-    for i, entry in ipairs(history) do
-        segments[i] = ui.button({
+    for i = 2, #history do
+        segments[i - 1] = ui.button({
             key = "activity-hit-" .. i,
             variant = "ghost",
             flexGrow = 1,
             height = 12,
-            tooltip = describeEntry(entry),
+            tooltip = describeEntry(history[i]),
             onHover = function(state)
                 if state == "true" then
                     activityHoverIndex = i
@@ -423,7 +458,13 @@ local function activitySection()
             ui.label({ text = tr("activity.title"), fontSize = 11, fontWeight = "bold", color = "on_surface_variant" }),
             ui.label({ text = caption, fontSize = 10, color = "on_surface_variant" }),
         }),
-        ui.graph({ values = activityValues(history), color = "primary", fillOpacity = 0.15, lineWidth = 2, height = 36 }),
+        ui.graph({
+            values = padGraphLookbehind(upsampleLinear(activityValues(history), ACTIVITY_GRAPH_SUBDIVISIONS)),
+            color = "primary",
+            fillOpacity = 0.15,
+            lineWidth = 2,
+            height = 36,
+        }),
         activityHoverRow(history),
     })
 end
