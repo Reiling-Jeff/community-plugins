@@ -846,4 +846,5 @@ if not noctalia.commandExists("checkupdates") then
     phase = "missing"
     errMsg = tr("err_no_checkupdates")
 end
+loadHistoryState() -- so the graph shows prior sessions' data before the first check runs
 publish()
