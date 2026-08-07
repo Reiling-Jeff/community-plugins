@@ -298,6 +298,60 @@ local function extras()
     return lines
 end
 
+-- Normalizes the pending-count history to 0..1 for ui.graph, relative to the
+-- min/max in the window (not a fixed scale, since pending counts vary wildly
+-- between systems). A flat window (min == max, e.g. every check so far found
+-- the same count) centers the line at 0.5 instead of pinning it to the top
+-- edge, where it would be indistinguishable from the box border.
+local function activityValues(history)
+    local minN, maxN = history[1], history[1]
+    for _, n in ipairs(history) do
+        if n < minN then
+            minN = n
+        end
+        if n > maxN then
+            maxN = n
+        end
+    end
+    local range = maxN - minN
+    local values = {}
+    for _, n in ipairs(history) do
+        table.insert(values, range > 0 and (n - minN) / range or 0.5)
+    end
+    return values
+end
+
+-- A small trend graph of pending-update counts across recent checks, plus
+-- when the last update ran. Off entirely when show_activity_graph is off,
+-- and hidden until there is enough history to draw a line.
+local function activitySection()
+    if snapshot == nil or noctalia.getConfig("show_activity_graph") ~= true then
+        return nil
+    end
+    local history = type(snapshot.history) == "table" and snapshot.history or {}
+    if #history < 2 then
+        return nil
+    end
+
+    local lastUpdateAt = tonumber(snapshot.lastUpdateAt)
+    local caption
+    if lastUpdateAt == nil then
+        caption = tr("activity.never_updated")
+    else
+        local days = math.floor((os.time() - lastUpdateAt) / 86400)
+        caption = days <= 0 and tr("activity.updated_today")
+            or noctalia.trp("activity.updated_days_ago", days, { count = days })
+    end
+
+    return ui.column({ key = "activity", gap = 4 }, {
+        ui.row({ justify = "space_between", align = "center" }, {
+            ui.label({ text = tr("activity.title"), fontSize = 11, fontWeight = "bold", color = "on_surface_variant" }),
+            ui.label({ text = caption, fontSize = 10, color = "on_surface_variant" }),
+        }),
+        ui.graph({ values = activityValues(history), color = "primary", fillOpacity = 0.15, lineWidth = 2, height = 36 }),
+    })
+end
+
 local function body()
     local children = {}
 
@@ -330,6 +384,11 @@ local function body()
             color = "on_surface_variant",
             maxLines = 2,
         }))
+    end
+
+    local activity = activitySection()
+    if activity ~= nil then
+        table.insert(children, activity)
     end
 
     return children

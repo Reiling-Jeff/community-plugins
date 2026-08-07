@@ -5,7 +5,7 @@
 --   state    "arch_state"   = { nonce, phase, step, total, pacman, aur,
 --                                flatpak, downloadSizeMiB, rebootRecommended,
 --                                newsUnread, newsLatestTitle, err,
---                                checkedAt, ignoredCount }
+--                                checkedAt, ignoredCount, history, lastUpdateAt }
 --   requests "arch_request" = { nonce, action }  -- check|update|dismiss
 --
 -- Checking runs pacman, then the AUR helper, then Flatpak, then (if pacman
@@ -20,6 +20,7 @@ local REQUEST_KEY = "arch_request"
 local NEWS_FILE = "news_state.json"
 local NEWS_URL = "https://archlinux.org/feeds/news/"
 local NEWS_PAGE = "https://archlinux.org/news/"
+local HISTORY_FILE = "history_state.json"
 
 local CHECK_TIMEOUT_MS = 45000 -- pacman/AUR/flatpak checks: each may sync a mirror
 local SIZE_TIMEOUT_MS = 20000 -- pacman -Si: local db, no mirror sync
@@ -54,6 +55,9 @@ local startupTicks = 0
 local sinceNewsCheck = 0
 local newsStateLoaded = false
 local newsDirty = false
+local history = {} -- pending-count per check, oldest first, trimmed to activity_history_length
+local lastUpdateAt = nil -- os.time() of the last update run that finished
+local historyStateLoaded = false
 
 local startCheck
 local checkNews
@@ -199,6 +203,8 @@ local function publish()
         err = errMsg,
         checkedAt = checkedAt,
         ignoredCount = #ignoreList(),
+        history = history,
+        lastUpdateAt = lastUpdateAt,
         flatpakEnabled = cfg("flatpak_enabled") == true,
     })
 end
@@ -209,6 +215,7 @@ local checkFlatpak
 local checkSize
 local checkReboot
 local finishCheck
+local recordCheck
 
 local function failCheck(message)
     phase = "error"
@@ -423,6 +430,7 @@ finishCheck = function()
     phase = total > 0 and "ready" or "clean"
     checkedAt = noctalia.formatTime("%H:%M")
     sinceCheck = 0
+    recordCheck()
     publish()
     if total > 0 and cfg("notify_on_updates") == true then
         noctalia.notify(tr("title"), noctalia.trp("notify_updates", total, { count = total }))
@@ -464,6 +472,73 @@ local function saveNewsState()
     if encoded ~= nil then
         noctalia.writeFile(path, encoded)
     end
+end
+
+-- ── Activity history ─────────────────────────────────────────────────────────
+
+local function historyStatePath()
+    local dir, err = noctalia.pluginDataDir()
+    if dir == nil then
+        noctalia.log("arch-updater: cannot resolve plugin data dir: " .. tostring(err))
+        return nil
+    end
+    return dir .. "/" .. HISTORY_FILE
+end
+
+local function loadHistoryState()
+    if historyStateLoaded then
+        return
+    end
+    historyStateLoaded = true
+    local path = historyStatePath()
+    local encoded = path ~= nil and noctalia.readFile(path) or nil
+    local ok, decoded = pcall(function()
+        return encoded ~= nil and noctalia.json.decode(encoded) or nil
+    end)
+    if ok and type(decoded) == "table" then
+        if type(decoded.history) == "table" then
+            history = decoded.history
+        end
+        if type(decoded.lastUpdateAt) == "number" then
+            lastUpdateAt = decoded.lastUpdateAt
+        end
+    end
+end
+
+local function saveHistoryState()
+    local path = historyStatePath()
+    if path == nil then
+        return
+    end
+    local encoded = noctalia.json.encode({ history = history, lastUpdateAt = lastUpdateAt })
+    if encoded ~= nil then
+        noctalia.writeFile(path, encoded)
+    end
+end
+
+-- Appends the current total to the activity history, trimmed to the
+-- configured length. A no-op when the graph is turned off, so disabling it
+-- also stops collecting data, not just hides it.
+recordCheck = function()
+    if cfg("show_activity_graph") ~= true then
+        return
+    end
+    loadHistoryState()
+    table.insert(history, total)
+    local maxLen = math.max(3, math.min(30, tonumber(cfg("activity_history_length")) or 10))
+    while #history > maxLen do
+        table.remove(history, 1)
+    end
+    saveHistoryState()
+end
+
+local function recordUpdateRun()
+    if cfg("show_activity_graph") ~= true then
+        return
+    end
+    loadHistoryState()
+    lastUpdateAt = os.time()
+    saveHistoryState()
 end
 
 local HTML_ENTITIES = {
@@ -662,6 +737,7 @@ local function pollRun()
             return
         end
         if runSeen or runTicks >= RUN_GRACE_SECONDS then
+            recordUpdateRun()
             startCheck()
         end
     end, updateProcessName)

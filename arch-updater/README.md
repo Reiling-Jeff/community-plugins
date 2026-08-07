@@ -78,6 +78,10 @@ Not in the v4 plugin:
 - **A generic package-page link** (`archlinux.org/packages`,
   `aur.archlinux.org`, `flathub.org`) instead of hardcoded per-repo mirror
   URLs, so it stays correct across Arch-based distros.
+- **An activity graph.** A small trend line of the pending-update count
+  across the most recent checks, plus when you last ran an update. Persisted
+  to disk so it survives restarts. On by default, and turning it off also
+  stops recording the history, not just hiding it.
 
 ## Settings
 
@@ -92,6 +96,8 @@ Not in the v4 plugin:
 | `show_download_size` | `bool` | `true` | Show the estimated pacman download size (`pacman -Si`) in the panel. |
 | `check_arch_news` | `bool` | `true` | Check the Arch Linux news feed and flag unread posts. |
 | `check_reboot_needed` | `bool` | `true` | Flag when the running kernel is no longer installed on disk. |
+| `show_activity_graph` | `bool` | `true` | Track and show the pending-update trend and last-update time in the panel. Off also stops recording history. |
+| `activity_history_length` | `int` | `10` | How many of the most recent checks to keep for the activity graph. |
 | `terminal` | `string` | *(empty)* | Terminal command for the update run, e.g. `kitty`. Empty uses Noctalia's detection. |
 | `assume_yes` | `bool` | `false` | Pass `--noconfirm` / `-y` so package managers do not ask for confirmation. |
 | `update_cmd` | `string` | *(empty)* | Full override for the update command. Empty builds it from the settings above. |

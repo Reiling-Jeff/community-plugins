@@ -3,6 +3,15 @@
   "action_dismiss": "Verwerfen",
   "action_open_news": "News öffnen",
   "action_update": "Aktualisieren",
+  "activity": {
+    "never_updated": "Noch nie aktualisiert",
+    "title": "Aktivität",
+    "updated_days_ago": {
+      "one": "Vor 1 Tag aktualisiert",
+      "other": "Vor {count} Tagen aktualisiert"
+    },
+    "updated_today": "Heute aktualisiert"
+  },
   "caption_checked": "geprüft {time}",
   "caption_ignored": {
     "one": "1 Paket ignoriert",
@@ -33,6 +42,10 @@
     "press_key": "Beliebige Taste zum Schließen drücken"
   },
   "settings": {
+    "activity_history_length": {
+      "description": "Wie viele der letzten Prüfungen für das Aktivitätsdiagramm aufbewahrt werden.",
+      "label": "Länge des Aktivitätsverlaufs"
+    },
     "assume_yes": {
       "description": "Übergibt --noconfirm / -y, damit Paketmanager nicht nach Bestätigung fragen. Aus bedeutet, du bestätigst jedes Paket im Terminal-Fenster selbst.",
       "label": "Automatisch mit Ja bestätigen"
@@ -83,6 +96,10 @@
     "notify_on_updates": {
       "description": "Sendet eine Desktop-Benachrichtigung, wenn eine Prüfung aktualisierbare Pakete findet.",
       "label": "Bei gefundenen Updates benachrichtigen"
+    },
+    "show_activity_graph": {
+      "description": "Zeichnet die Anzahl ausstehender Updates über die letzten Prüfungen sowie den letzten Update-Zeitpunkt auf und zeigt sie als kleines Diagramm im Panel. Deaktiviert stoppt auch die Aufzeichnung.",
+      "label": "Aktivitätsdiagramm anzeigen"
     },
     "show_count": {
       "description": "Zeigt die Anzahl ausstehender Updates neben dem Bar-Symbol.",
