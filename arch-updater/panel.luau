@@ -4,11 +4,11 @@
 -- actions this panel emits, so closing the panel never interrupts a check or
 -- a run in progress.
 --
--- One click on "Update" starts the background run: pkexec raises the polkit
--- password dialog, everything else is non-interactive. While it runs, the
--- package list gives way to a live tail of the update log plus a progress
--- bar. A failed run keeps its log on screen and offers a terminal fallback
--- where prompts work normally.
+-- "Update" follows the update_mode setting: a terminal window (default,
+-- like the original plugin) or a non-interactive background run. Either
+-- way the package list gives way to a live tail of the update log plus a
+-- progress bar while it runs. A failed background run keeps its log on
+-- screen and offers a terminal retry where prompts work normally.
 
 local STATE_KEY = "arch_state"
 local REQUEST_KEY = "arch_request"
@@ -18,6 +18,9 @@ local expanded = {} -- source key -> the package list is open
 local hoverKey = nil -- package row currently under the pointer
 local hoverText = "" -- what the detail line shows
 local listOpen = false -- at least one source is expanded this render
+local openedRunAt = nil -- history run whose package list replaces the sources
+local armedKey = nil -- rollback button waiting for its confirming second click
+local activityHoverIndex = nil -- activity graph point currently under the pointer
 
 local render
 
@@ -25,10 +28,20 @@ local function tr(key, args)
     return noctalia.tr(key, args)
 end
 
-local function request(action, pkg)
+-- extra: a package name string, or a table merged into the request payload
+-- (pkg/version/at for the rollback family).
+local function request(action, extra)
     local prev = noctalia.state.get(REQUEST_KEY)
     local nonce = (type(prev) == "table" and tonumber(prev.nonce) or 0) + 1
-    noctalia.state.set(REQUEST_KEY, { nonce = nonce, action = action, pkg = pkg })
+    local payload = { nonce = nonce, action = action }
+    if type(extra) == "table" then
+        for key, value in pairs(extra) do
+            payload[key] = value
+        end
+    elseif extra ~= nil then
+        payload.pkg = extra
+    end
+    noctalia.state.set(REQUEST_KEY, payload)
 end
 
 local function shellQuote(value)
@@ -108,6 +121,12 @@ local function headline()
         end
         return tr("status_checking"), "secondary"
     elseif phase == "running" then
+        if snapshot ~= nil and snapshot.runKind == "rollback" then
+            return tr("status_rolling_back"), "secondary"
+        end
+        if snapshot ~= nil and snapshot.runMode == "terminal" then
+            return tr("status_running_terminal"), "secondary"
+        end
         return tr("status_running"), "secondary"
     elseif phase == "clean" then
         return tr("status_clean"), "on_surface"
@@ -386,6 +405,366 @@ local function ignoredRows()
     return rows
 end
 
+-- ── Activity graph (the upstream feature, opt-in) ───────────────────────────
+
+-- Normalizes the pending-count history to 0..1 for ui.graph, relative to the
+-- min/max in the window (not a fixed scale, since pending counts vary wildly
+-- between systems). A flat window (min == max, e.g. every check so far found
+-- the same count) centers the line at 0.5 instead of pinning it to the top
+-- edge, where it would be indistinguishable from the box border.
+local function activityValues(history)
+    local minN, maxN = tonumber(history[1].n) or 0, tonumber(history[1].n) or 0
+    for _, entry in ipairs(history) do
+        local n = tonumber(entry.n) or 0
+        if n < minN then
+            minN = n
+        end
+        if n > maxN then
+            maxN = n
+        end
+    end
+    local range = maxN - minN
+    local values = {}
+    for _, entry in ipairs(history) do
+        local n = tonumber(entry.n) or 0
+        table.insert(values, range > 0 and (n - minN) / range or 0.5)
+    end
+    return values
+end
+
+local ACTIVITY_GRAPH_SUBDIVISIONS = 8
+
+local function upsampleLinear(values, subdivisions)
+    if #values < 2 or subdivisions <= 1 then
+        return values
+    end
+    local out = {}
+    for i = 1, #values - 1 do
+        local a, b = values[i], values[i + 1]
+        for s = 0, subdivisions - 1 do
+            table.insert(out, a + (b - a) * (s / subdivisions))
+        end
+    end
+    table.insert(out, values[#values])
+    return out
+end
+
+local function padGraphLookbehind(values)
+    if #values == 0 then
+        return values
+    end
+    local out = { values[1], values[1] }
+    for _, v in ipairs(values) do
+        table.insert(out, v)
+    end
+    return out
+end
+
+-- "2 hours ago", "3 days ago", etc. nil for entries migrated from the old
+-- history format, which never recorded a timestamp.
+local function relativeTime(at)
+    local t = tonumber(at)
+    if t == nil then
+        return nil
+    end
+    local diff = os.time() - t
+    if diff < 60 then
+        return tr("activity.just_now")
+    elseif diff < 3600 then
+        local m = math.floor(diff / 60)
+        return noctalia.trp("activity.minutes_ago", m, { count = m })
+    elseif diff < 86400 then
+        local h = math.floor(diff / 3600)
+        return noctalia.trp("activity.hours_ago", h, { count = h })
+    else
+        local d = math.floor(diff / 86400)
+        return noctalia.trp("activity.days_ago", d, { count = d })
+    end
+end
+
+-- "Updated · 2 hours ago" for the check that verified an update run, else
+-- "3 pending updates · 2 hours ago". Shared by the hover tooltip and the
+-- top-right caption so both describe a point the same way.
+local function describeEntry(entry)
+    local n = tonumber(entry.n) or 0
+    local text = entry.afterUpdate == true and tr("activity.updated")
+        or noctalia.trp("activity.pending_at", n, { count = n })
+    local when = relativeTime(entry.at)
+    if when ~= nil then
+        text = text .. " · " .. when
+    end
+    return text
+end
+
+-- ui.graph takes no pointer props of its own and the framework has no
+-- overlay control, so per-point hover cannot live on the line itself: it is
+-- a row of hit targets right under it, drawn as an axis of small dots (the
+-- hovered one lights up in the accent color) so the interactivity is
+-- visible without the ghost-button hover flash.
+--
+-- Real points sit at (k-1)/(#history-1) of the width (see
+-- padGraphLookbehind), i.e. #history-1 equal gaps, not #history equal slots
+-- - so this builds one equal-width segment per gap rather than per entry,
+-- ending each segment (and its dot) exactly on the point at its right edge.
+-- That leaves entry 1 (at the left edge, with no gap before it) without its
+-- own hover zone, but keeps every other spike landing right at the end of
+-- its segment instead of drifting toward the start of an oversized one.
+local function activityHoverRow(history)
+    local segments = {}
+    for i = 2, #history do
+        local hovered = activityHoverIndex == i
+        segments[i - 1] = ui.row({
+            key = "activity-hit-" .. i .. (hovered and "-on" or ""),
+            flexGrow = 1,
+            height = 12,
+            align = "center",
+            justify = "end",
+            onHover = function(state)
+                if state == "true" then
+                    activityHoverIndex = i
+                elseif activityHoverIndex == i then
+                    activityHoverIndex = nil
+                else
+                    return
+                end
+                render()
+            end,
+        }, {
+            ui.box({
+                width = hovered and 7 or 5,
+                height = hovered and 7 or 5,
+                radius = 4,
+                fill = hovered and "primary" or "outline/0.6",
+            }),
+        })
+    end
+    return ui.row({ key = "activity-hits", gap = 1 }, segments)
+end
+
+-- A small trend graph of pending-update counts across recent checks, plus
+-- when the last update ran (or, while hovering a point, that point's own
+-- description). Off entirely when show_activity_graph is off, and hidden
+-- until there is enough history to draw a line.
+local function activitySection()
+    if snapshot == nil or noctalia.getConfig("show_activity_graph") ~= true then
+        return nil
+    end
+    local history = type(snapshot.activity) == "table" and snapshot.activity or {}
+    if #history < 2 then
+        return nil
+    end
+
+    local hoveredEntry = activityHoverIndex ~= nil and history[activityHoverIndex] or nil
+    local caption
+    if hoveredEntry ~= nil then
+        caption = describeEntry(hoveredEntry)
+    else
+        local lastUpdateAt = tonumber(snapshot.lastUpdateAt)
+        if lastUpdateAt == nil then
+            caption = tr("activity.never_updated")
+        else
+            local days = math.floor((os.time() - lastUpdateAt) / 86400)
+            caption = days <= 0 and tr("activity.updated_today")
+                or noctalia.trp("activity.updated_days_ago", days, { count = days })
+        end
+    end
+
+    return ui.column({ key = "activity", gap = 4 }, {
+        ui.row({ justify = "space_between", align = "center" }, {
+            ui.label({ text = tr("activity.title"), fontSize = 11, fontWeight = "bold", color = "on_surface_variant" }),
+            ui.label({ text = caption, fontSize = 10, color = "on_surface_variant" }),
+        }),
+        ui.graph({
+            values = padGraphLookbehind(upsampleLinear(activityValues(history), ACTIVITY_GRAPH_SUBDIVISIONS)),
+            color = "primary",
+            fillOpacity = 0.15,
+            lineWidth = 2,
+            height = 36,
+        }),
+        activityHoverRow(history),
+    })
+end
+
+-- ── Run history and rollback ─────────────────────────────────────────────────
+
+local function historyRuns()
+    if snapshot == nil or type(snapshot.history) ~= "table" then
+        return {}
+    end
+    return snapshot.history -- newest first
+end
+
+local function findHistoryRun(at)
+    for _, run in ipairs(historyRuns()) do
+        if tonumber(run.at) == tonumber(at) then
+            return run
+        end
+    end
+    return nil
+end
+
+local function describeRun(run)
+    local text = os.date("%d.%m %H:%M", tonumber(run.at) or 0)
+        .. " · " .. noctalia.trp("run_packages", run.n or 0, { count = run.n or 0 })
+    if run.rollback == true then
+        text = text .. " · " .. tr("history_rollback_tag")
+    end
+    return text
+end
+
+-- The footer strip: one equal-width segment per recorded run, oldest on the
+-- left. Hover describes the run, click opens its package list.
+local function historySection()
+    local runs = historyRuns()
+    if #runs == 0 then
+        return nil
+    end
+    local segments = {}
+    for i = #runs, 1, -1 do
+        local run = runs[i]
+        table.insert(segments, ui.button({
+            key = "run-" .. tostring(run.at),
+            -- primary: painted in the theme's accent color, so the strip is
+            -- visible at rest (ghost would only show on hover)
+            variant = "primary",
+            flexGrow = 1,
+            height = 10,
+            tooltip = describeRun(run) .. "\n" .. tr("tip_history_segment"),
+            onClick = function()
+                openedRunAt = run.at
+                armedKey = nil
+                request("probe_run", { at = run.at })
+                render()
+            end,
+        }))
+    end
+    local header = {
+        ui.label({ text = tr("history_title"), fontSize = 11, fontWeight = "bold", color = "on_surface_variant", flexGrow = 1 }),
+    }
+    if snapshot ~= nil and snapshot.checkedAt ~= nil and snapshot.checkedAt ~= "" then
+        table.insert(header, ui.label({
+            text = tr("caption_checked", { time = snapshot.checkedAt }),
+            fontSize = 10,
+            color = "on_surface_variant",
+        }))
+    end
+    return ui.column({ key = "history", gap = 3 }, {
+        ui.row({ key = "history-head", gap = 6, align = "center" }, header),
+        ui.row({ key = "history-segments", gap = 2 }, segments),
+    })
+end
+
+local function probeFor(run)
+    if snapshot ~= nil and type(snapshot.probe) == "table" and tonumber(snapshot.probe.at) == tonumber(run.at) then
+        return snapshot.probe.pkgs
+    end
+    return nil
+end
+
+-- Two-click rollback: the first click arms the button (it turns into a
+-- confirm label), the second sends the request. Anything else re-renders
+-- the armed state away.
+local function rollbackButton(key, tooltip, onConfirm)
+    if armedKey == key then
+        return ui.button({
+            key = key .. "-armed",
+            text = tr("rollback_confirm"), variant = "primary", controlSize = "sm",
+            tooltip = tooltip,
+            onClick = function()
+                armedKey = nil
+                onConfirm()
+            end,
+        })
+    end
+    return ui.button({
+        key = key,
+        glyph = "undo", variant = "ghost", controlSize = "sm", width = 22, height = 22, glyphSize = 12,
+        tooltip = tooltip,
+        onClick = function()
+            armedKey = key
+            render()
+        end,
+    })
+end
+
+local function rollbackRow(run, index, item, probePkgs)
+    local key = "rb-" .. tostring(run.at) .. "-" .. index
+    local info = probePkgs ~= nil and probePkgs[item.name] or nil
+    local children = {}
+
+    if item.source == "flatpak" then
+        table.insert(children, ui.glyph({ name = "app-window", size = 12, color = "on_surface_variant" }))
+    elseif info ~= nil and info.cache ~= true then
+        table.insert(children, ui.button({
+            key = key .. "-miss",
+            glyph = "undo", variant = "ghost", controlSize = "sm", width = 22, height = 22, glyphSize = 12,
+            enabled = false,
+            tooltip = tr("rollback_missing"),
+            onClick = function() end,
+        }))
+    else
+        local tooltip = tr("tip_rollback", { version = tostring(item.from or "") })
+        if info ~= nil and (info.req or 0) > 0 then
+            tooltip = tooltip .. "\n" .. noctalia.trp("rollback_required_by", info.req, { count = info.req })
+        end
+        table.insert(children, rollbackButton(key, tooltip, function()
+            request("rollback", { pkg = item.name, version = item.from, at = run.at })
+        end))
+    end
+
+    table.insert(children, ui.label({ text = item.name, fontSize = 11, color = "on_surface", flexGrow = 1, maxLines = 1 }))
+    if item.from ~= nil and item.from ~= "" then
+        table.insert(children, ui.label({
+            text = item.from, fontSize = 11, color = "on_surface_variant", maxWidth = VERSION_WIDTH, maxLines = 1,
+        }))
+    end
+    table.insert(children, ui.label({ text = "→", fontSize = 11, color = "on_surface_variant" }))
+    table.insert(children, ui.label({
+        text = tostring(item.to or ""), fontSize = 11, color = "primary", maxWidth = VERSION_WIDTH, maxLines = 1,
+    }))
+    return ui.row({ key = key .. "-row", gap = 6, align = "center" }, children)
+end
+
+-- The opened run: header with a back button and a whole-run rollback, then
+-- one row per package showing the run's from -> to and a rollback control.
+local function runViewRows()
+    local run = findHistoryRun(openedRunAt)
+    if run == nil then
+        openedRunAt = nil
+        return nil
+    end
+    local probePkgs = probeFor(run)
+    local rows = {}
+    local header = {
+        ui.button({
+            glyph = "chevron-left", variant = "ghost", controlSize = "sm", width = 22, height = 22, glyphSize = 12,
+            tooltip = tr("action_back"),
+            onClick = function()
+                openedRunAt = nil
+                armedKey = nil
+                render()
+            end,
+        }),
+        ui.label({ text = describeRun(run), fontSize = 12, fontWeight = "bold", color = "on_surface", flexGrow = 1, maxLines = 1 }),
+    }
+    local rollable = 0
+    for _, item in ipairs(run.packages or {}) do
+        if item.source ~= "flatpak" then
+            rollable += 1
+        end
+    end
+    if rollable > 0 and run.rollback ~= true then
+        table.insert(header, rollbackButton("rb-all-" .. tostring(run.at), tr("tip_rollback_run"), function()
+            request("rollback_run", { at = run.at })
+        end))
+    end
+    table.insert(rows, ui.row({ key = "run-head", gap = 6, align = "center" }, header))
+    for index, item in ipairs(run.packages or {}) do
+        table.insert(rows, rollbackRow(run, index, item, probePkgs))
+    end
+    return rows
+end
+
 -- Live tail of the update log, with a progress bar while packages are being
 -- processed. Shown during a run and kept on screen after a failed one.
 local function logSection()
@@ -429,12 +808,14 @@ local function logSection()
     table.insert(children, ui.column({ key = "log-lines", gap = 2, flexGrow = 1 }, rows))
 
     if snapshot ~= nil and type(snapshot.logPath) == "string" and snapshot.logPath ~= "" then
-        local path = snapshot.logPath
         table.insert(children, ui.row({ key = "log-actions", gap = 6 }, {
             ui.button({
                 text = tr("action_open_log"), variant = "ghost", controlSize = "sm",
+                -- Opened by the service in a terminal pager: xdg-open on a
+                -- text file dies silently when the default handler is a
+                -- terminal editor.
                 onClick = function()
-                    openUrl("file://" .. path)
+                    request("open_log")
                 end,
             }),
         }))
@@ -468,8 +849,15 @@ local function extras()
         }))
     end
 
-    -- Offered until the polkit keep-authorization rule is installed.
-    if snapshot.polkitRule == false and phaseOf() ~= "running" and noctalia.getConfig("hide_polkit_hint") ~= true then
+    -- Offered until the polkit keep-authorization rule is installed. Only in
+    -- background mode: a terminal run goes through sudo, so the repeated
+    -- polkit prompts the rule solves never happen there.
+    if
+        snapshot.polkitRule == false
+        and noctalia.getConfig("update_mode") == "background"
+        and phaseOf() ~= "running"
+        and noctalia.getConfig("hide_polkit_hint") ~= true
+    then
         table.insert(lines, ui.row({ key = "polkit", gap = 6, align = "center" }, {
             ui.glyph({ name = "shield", size = 13, color = "on_surface_variant" }),
             ui.label({
@@ -515,10 +903,15 @@ local function body()
     local children = {}
 
     -- The middle of the panel: the live log while updating (and after a
-    -- failure), the package list otherwise.
+    -- failure), an opened history run, or the package list.
     if phaseOf() == "running" or (runFailed() and #logLines() > 0) then
         table.insert(children, logSection())
     else
+        local runRows = openedRunAt ~= nil and runViewRows() or nil
+        if runRows ~= nil then
+            table.insert(children, ui.scroll({ key = "run-view", flexGrow = 1, gap = 4 }, runRows))
+            return children
+        end
         local rows = sourceRows()
         for _, row in ipairs(ignoredRows()) do
             table.insert(rows, row)
@@ -605,15 +998,31 @@ render = function()
         table.insert(children, node)
     end
 
-    local caption = footerCaption()
-    if caption ~= nil then
+    -- Both footers hide while a check or run is on screen, so neither ever
+    -- competes with the live log for space.
+    local activity = not busy() and activitySection() or nil
+    local history = not busy() and historySection() or nil
+    if activity ~= nil or history ~= nil then
         table.insert(children, ui.separator({}))
-        table.insert(children, ui.label({ text = caption, fontSize = 11, color = "on_surface_variant", maxLines = 2 }))
+        if activity ~= nil then
+            table.insert(children, activity)
+        end
+        if history ~= nil then
+            table.insert(children, history)
+        end
+    else
+        local caption = footerCaption()
+        if caption ~= nil then
+            table.insert(children, ui.separator({}))
+            table.insert(children, ui.label({ text = caption, fontSize = 11, color = "on_surface_variant", maxLines = 2 }))
+        end
     end
 
     if phase ~= "missing" then
         local footer = {}
-        if runFailed() then
+        -- Not offered after a failed rollback: re-running the *update*
+        -- command in a terminal is not a retry of the rollback.
+        if runFailed() and (snapshot == nil or snapshot.runKind ~= "rollback") then
             table.insert(footer, ui.button({
                 key = "retry-terminal",
                 glyph = "terminal", text = tr("action_run_terminal"), variant = "ghost", flexGrow = 1,
@@ -631,13 +1040,16 @@ render = function()
                 panel.close()
             end,
         }))
+        local backgroundMode = noctalia.getConfig("update_mode") == "background"
         table.insert(footer, ui.button({
             key = "update" .. (hasUpdates and "" or "-off"),
-            glyph = "download", text = tr("action_update"), variant = "primary", enabled = hasUpdates,
-            tooltip = tr("tip_update"),
+            glyph = backgroundMode and "download" or "terminal",
+            text = tr("action_update"), variant = "primary", enabled = hasUpdates,
+            tooltip = backgroundMode and tr("tip_update") or tr("tip_update_terminal"),
             onClick = function()
                 -- The panel stays open: the log section takes over so the
-                -- run can be watched live.
+                -- run can be watched live (the log is tee'd from the
+                -- terminal too).
                 request("update")
             end,
         }))
@@ -652,6 +1064,9 @@ function onOpen(_context)
     expanded = {}
     hoverKey = nil
     hoverText = ""
+    openedRunAt = nil
+    armedKey = nil
+    activityHoverIndex = nil
     render()
 end
 
@@ -663,6 +1078,10 @@ noctalia.state.watch(STATE_KEY, function(value)
         expanded = {}
         hoverKey = nil
         hoverText = ""
+    end
+    if value.phase == "running" and (snapshot == nil or snapshot.phase ~= "running") then
+        openedRunAt = nil
+        armedKey = nil
     end
     snapshot = value
     render()

@@ -1,12 +1,12 @@
 id = "yuuto/arch-updater"
 name = "Arch Updater"
-version = "2.0.0"
+version = "2.4.0"
 plugin_api = 9
 author = "yuuto"
 license = "MIT"
 icon = "package"
-description = "Check pacman, AUR and Flatpak updates, then upgrade in the background with a live log and one polkit password prompt."
-dependencies = ["pacman-contrib", "awk", "flatpak", "pacman", "paru", "pkexec", "sed", "sh", "sudo", "tail", "test", "uname", "xdg-open", "yay"]
+description = "Check pacman, AUR and Flatpak updates, then upgrade in a terminal or in the background, with run history and rollback."
+dependencies = ["pacman-contrib", "awk", "date", "flatpak", "grep", "head", "install", "less", "pacman", "paru", "pkexec", "rm", "sed", "sh", "sudo", "tail", "tee", "test", "uname", "wc", "xdg-open", "yay"]
 tags = ["arch", "bar", "panel", "launcher", "system", "utility"]
 
 # ── General ──────────────────────────────────────────────────────────────────
@@ -86,7 +86,42 @@ label_key = "settings.check_reboot_needed.label"
 description_key = "settings.check_reboot_needed.description"
 default = true
 
+[[setting]]
+key = "show_activity_graph"
+type = "bool"
+label_key = "settings.show_activity_graph.label"
+description_key = "settings.show_activity_graph.description"
+default = false
+
+[[setting]]
+key = "activity_history_length"
+type = "int"
+label_key = "settings.activity_history_length.label"
+description_key = "settings.activity_history_length.description"
+default = 10
+min = 3
+max = 30
+visible_when = { key = "show_activity_graph", values = ["true"] }
+
 # ── Update run ───────────────────────────────────────────────────────────────
+
+[[setting]]
+key = "update_mode"
+type = "select"
+label_key = "settings.update_mode.label"
+description_key = "settings.update_mode.description"
+default = "terminal"
+options = [
+  { value = "terminal", label_key = "settings.update_mode.options.terminal" },
+  { value = "background", label_key = "settings.update_mode.options.background" },
+]
+
+[[setting]]
+key = "rollback_auto_ignore"
+type = "bool"
+label_key = "settings.rollback_auto_ignore.label"
+description_key = "settings.rollback_auto_ignore.description"
+default = false
 
 [[setting]]
 key = "hide_polkit_hint"
