@@ -510,7 +510,9 @@ local function aurCheckCommand(helper)
     -- No 2>/dev/null and no formatting pipe here: stderr is inspected below
     -- to tell a real failure from the "-Qua" family's usual no-updates exit
     -- code, and the raw output already matches checkupdates' own format.
-    return helper .. " -Qua"
+    -- LC_ALL=C for the same reason as the checkupdates call: the helpers are
+    -- localized too, and the parser keys on pacman's English markers.
+    return "LC_ALL=C " .. helper .. " -Qua"
 end
 
 -- ── Publishing ───────────────────────────────────────────────────────────────
@@ -746,8 +748,11 @@ startCheck = function()
     local ignored = ignoreSet()
     -- checkupdates exits 2 for "no updates" (not an error), 1 for a real
     -- failure (mirror/db sync, etc). Normalize the former to 0 so only a
-    -- genuine failure reaches result.exitCode below.
-    local cmd = [[checkupdates 2>/dev/null; code=$?; if [ "$code" -eq 2 ]; then exit 0; fi; exit "$code"]]
+    -- genuine failure reaches result.exitCode below. LC_ALL=C: pacman
+    -- translates the "[ignored]" marker the parser keys on ("[Ignoriert]"
+    -- on a German system), which would route IgnorePkg packages into the
+    -- pending count instead of the ignored section.
+    local cmd = [[LC_ALL=C checkupdates 2>/dev/null; code=$?; if [ "$code" -eq 2 ]; then exit 0; fi; exit "$code"]]
     local started = noctalia.runAsync(cmd, function(result)
         if result.timedOut then
             failCheck(tr("err_check_timeout"))
@@ -1178,9 +1183,15 @@ local function runUpdate()
 
     -- "::START <epoch>" lets a restarted engine tell a live run from a stale
     -- log; "::EXIT <code>" is the completion marker the poller waits for.
+    -- export LC_ALL=C: the progress patterns grep for English transaction
+    -- lines ("upgrading ...", Flatpak's "Updating app/..."), all of which
+    -- are translated. pkexec whitelists LC_* through its environment scrub,
+    -- so the escalated pacman inherits it. Terminal runs deliberately keep
+    -- the user's locale (their window, their language), at the cost of the
+    -- progress count there.
     local quoted = shellQuote(path)
     local script = "printf '::START %s\\n' \"$(date +%s)\" > " .. quoted
-        .. "; { " .. buildBackgroundCommand() .. " ; } >> " .. quoted .. " 2>&1"
+        .. "; { export LC_ALL=C; " .. buildBackgroundCommand() .. " ; } >> " .. quoted .. " 2>&1"
         .. "; printf '::EXIT %s\\n' \"$?\" >> " .. quoted
 
     if not noctalia.runAsync(script) then
@@ -1470,8 +1481,10 @@ done
 if [ -n "$missing" ]; then echo "missing in cache:$missing"; exit 3; fi
 pkexec pacman -U --noconfirm --noprogressbar --color never $files]]
     local quoted = shellQuote(path)
+    -- export LC_ALL=C for the same reason as the update runner: the progress
+    -- count greps for pacman's English "downgrading ..." lines.
     local script = "printf '::START %s\\n' \"$(date +%s)\" > " .. quoted
-        .. "; { " .. body .. "\n} >> " .. quoted .. " 2>&1"
+        .. "; { export LC_ALL=C\n" .. body .. "\n} >> " .. quoted .. " 2>&1"
         .. "; printf '::EXIT %s\\n' \"$?\" >> " .. quoted
     if not noctalia.runAsync(script) then
         phase = "error"
