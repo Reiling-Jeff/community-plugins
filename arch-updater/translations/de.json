@@ -61,7 +61,7 @@
     "update_subtitle": "Installiere die ausstehenden Updates"
   },
   "log_title": "Update-Log",
-  "log_waiting": "Warte auf die polkiit password prompt und auf die erste Log-Ausgabe...",
+  "log_waiting": "Warte auf die polkiit password prompt und auf die erste Log-Ausgabe…",
   "more_packages": "+{count} weitere",
   "news_unread": {
     "one": "1 ungelesener Arch-News-Beitrag: „{title}“",
