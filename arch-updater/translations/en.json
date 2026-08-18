@@ -176,7 +176,7 @@
       "description": "How the Update button runs the upgrade. 'In a terminal window' (default) behaves like the original plugin: prompts and the PKGBUILD review work as usual. 'In the background' is fully non-interactive (--noconfirm, review skipped) with a live log in the panel.",
       "label": "Update mode",
       "options": {
-        "background": "In the background (non-interactive)",
+        "background": "In the background (non-interactive & HIGH RISK)",
         "terminal": "In a terminal window"
       }
     },
