@@ -21,10 +21,11 @@ run is logged and recorded in an update history with per-package rollback.
 
 - `pacman-contrib` on `PATH` (for `checkupdates` and `pactree`), required.
 - `pacman`, `sh`, `awk`, `sed`, `grep`, `tail`, `head`, `tee`, `wc`, `date`,
-  `rm`, `install`, `test` and `uname`, required — base tools from any
-  standard Arch install (coreutils and friends), used to run and parse the
-  checks, build the download size estimate, check the running kernel,
-  follow and open the update log, and install the optional polkit rule.
+  `rm`, `install`, `test`, `cat`, `kill` and `uname`, required — base tools
+  from any standard Arch install (coreutils and friends), used to run and
+  parse the checks, build the download size estimate, check the running
+  kernel, follow and open the update log, install the optional polkit rule,
+  and detect whether a terminal update run's process is still alive.
 - `pkexec` (polkit) with an authentication agent, required for the
   background update mode and for rollback. Noctalia's built-in polkit agent
   works out of the box.
