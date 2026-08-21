@@ -35,6 +35,8 @@
   "action_run_terminal": "In Terminal erneut versuchen",
   "action_update": "Aktualisieren",
   "caption_checked": "geprüft {time}",
+  "changelog_empty": "Kein Changelog verfügbar",
+  "changelog_title": "Was ist neu",
   "caption_ignored": {
     "one": "1 Paket ignoriert",
     "other": "{count} Pakete ignoriert"
@@ -143,6 +145,10 @@
       "description": "Zeichnet die Anzahl ausstehender Updates über die letzten Prüfungen sowie den letzten Update-Zeitpunkt auf und zeigt sie als kleines Diagramm im Panel. Deaktiviert stoppt auch die Aufzeichnung.",
       "label": "Aktivitätsdiagramm anzeigen"
     },
+    "show_changelog_after_update": {
+      "description": "Öffnet den Changelog im Panel automatisch, sobald ein Update erfolgreich abgeschlossen wurde.",
+      "label": "Changelog nach dem Update anzeigen"
+    },
     "show_count": {
       "description": "Zeigt die Anzahl ausstehender Updates neben dem Bar-Symbol.",
       "label": "Anzahl der Updates anzeigen"
@@ -189,6 +195,7 @@
   "status_rolling_back": "Rollback läuft…",
   "status_running": "Update läuft in einem Terminal…",
   "status_running_terminal": "Update läuft in einem Terminal-Fenster…",
+  "tip_changelog": "Zeigt, was sich in den einzelnen Versionen geändert hat",
   "tip_check": "Jetzt auf Updates prüfen",
   "tip_close": "Schließen",
   "tip_copy": "Name und Versionen kopieren",

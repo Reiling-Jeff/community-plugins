@@ -117,6 +117,13 @@ options = [
 ]
 
 [[setting]]
+key = "show_changelog_after_update"
+type = "bool"
+label_key = "settings.show_changelog_after_update.label"
+description_key = "settings.show_changelog_after_update.description"
+default = true
+
+[[setting]]
 key = "rollback_auto_ignore"
 type = "bool"
 label_key = "settings.rollback_auto_ignore.label"

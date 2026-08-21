@@ -53,7 +53,11 @@ noctalia msg panel-toggle yuuto/arch-updater:panel
 The panel groups pending packages by source (Pacman, AUR, Flatpak). Click a
 source row to expand it into its packages. Each package row has an ignore
 button (see **Ignored packages**), a copy button (name and versions) and an
-open button (its page on archlinux.org, the AUR, or Flathub).
+open button (its page on archlinux.org, the AUR, or Flathub). The history
+button next to **Check** opens the plugin's changelog, so you can see what
+changed in each release without leaving the panel. It also opens on its own
+once an update finishes, unless you turn that off with the **Show changelog
+after updating** setting.
 
 **Update** follows the **Update mode** setting:
 
