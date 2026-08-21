@@ -1,12 +1,13 @@
 # Changelog
 
 All notable changes to Arch Updater are documented here. The panel's changelog
-icon (the sparkle next to Check) shows this same file.
+icon (the history icon next to Check) shows this same file.
 
 ## 2.0.1 - 2026-08-21
 
 - Added: a changelog view in the panel. Click the history icon next to Check to see what changed in each release. It also opens automatically once an update finishes, unless turned off in settings (Show changelog after updating).
 - Fixed: hitting Update in terminal mode now closes the panel right away, instead of leaving it open with nothing left to show.
+- Fixed: closing the terminal window before an update finished left the panel stuck showing "Updating in a terminal window…" forever. The engine now notices the terminal is gone and reports the run as failed, with the usual retry option.
 
 ## 2.0.0 - 2026-08-19
 

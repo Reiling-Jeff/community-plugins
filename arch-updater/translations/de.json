@@ -48,6 +48,7 @@
   "err_no_xdg_open": "xdg-open nicht gefunden, Paketseite kann nicht geöffnet werden",
   "err_polkit_install": "Polkit regeln können nicht installiert werden, Details im Systemlog prüfen",
   "err_run_failed": "Update fehlgeschlagen (exit {code}), versuche es erneut im Terminal oder prüfe die Log-Datei",
+  "err_terminal_closed": "Das Terminal-Fenster wurde geschlossen, bevor das Update fertig war. Versuche es erneut im Terminal oder prüfe die Log-Datei",
   "err_spawn": "checkupdates konnte nicht gestartet werden",
   "history_rollback_tag": "Rollback",
   "history_title": "Verlauf aktualisieren",

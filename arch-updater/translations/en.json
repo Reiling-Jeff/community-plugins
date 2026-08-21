@@ -51,6 +51,7 @@
   "err_no_xdg_open": "xdg-open not found, cannot open the package page",
   "err_polkit_install": "Could not install the polkit rule, see the system log for details",
   "err_run_failed": "Update failed (exit {code}), check the log or retry in a terminal",
+  "err_terminal_closed": "The terminal window closed before the update finished, check the log or retry in a terminal",
   "err_spawn": "Could not run checkupdates",
   "history_rollback_tag": "rollback",
   "history_title": "Update history",
