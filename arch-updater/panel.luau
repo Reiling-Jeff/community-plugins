@@ -1050,10 +1050,14 @@ render = function()
             text = tr("action_update"), variant = "primary", enabled = hasUpdates,
             tooltip = backgroundMode and tr("tip_update") or tr("tip_update_terminal"),
             onClick = function()
-                -- The panel stays open: the log section takes over so the
-                -- run can be watched live (the log is tee'd from the
-                -- terminal too).
                 request("update")
+if not backgroundMode then
+                    -- Terminal mode hands the run off to its own window, so
+                    -- the panel has nothing left to show; background mode
+                    -- keeps it open since the live log is the only place
+                    -- progress is visible.
+                    panel.close()
+                end
             end,
         }))
         table.insert(children, ui.row({ gap = 8, align = "center", justify = "end" }, footer))
